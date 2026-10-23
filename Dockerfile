@@ -3,7 +3,8 @@
 FROM node:18-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+# Sem package-lock.json no repo; npm ci exige lockfile.
+RUN npm install --force
 COPY . .
 RUN npm run build
 
