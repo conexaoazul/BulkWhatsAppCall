@@ -1,0 +1,60 @@
+name: Bulk Call CI Gate
+on:
+  push:
+    branches:
+      - feature/dockerfile
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bulk-call-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lockfile:
+    if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/dockerfile
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Lock dependency tree
+        run: npm install --package-lock-only --legacy-peer-deps --ignore-scripts --no-audit --no-fund
+      - name: Commit lockfile if changed
+        shell: bash
+        run: |
+          git add package-lock.json
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'build: pin npm dependency graph'
+            git push origin HEAD:feature/dockerfile
+          fi
+
+  verify:
+    needs: lockfile
+    if: always() && (needs.lockfile.result == 'success' || needs.lockfile.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/dockerfile
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install reproducibly
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Build frontend
+        run: npm run build
+      - name: Check static files
+        run: test -s build/index.html
+      - name: Verify Docker image build
+        run: docker build -t bulk-call:p1-check .
